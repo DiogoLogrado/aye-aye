@@ -17,6 +17,7 @@ import {
 import { appDataDir } from '../server/config';
 import { startServer, type RunningServer } from '../server/start';
 import { appShortcut, type AppShortcut } from './shortcuts';
+import { startAutoUpdates, type Updater } from './updater';
 import { nextZoomLevel, type ZoomAction } from './zoom';
 
 /** A stable origin keeps UI preferences (localStorage). 4317 stays free for `npm start`. */
@@ -31,6 +32,7 @@ app.setAppUserModelId('local.aye-aye');
 
 let server: RunningServer | undefined;
 let mainWindow: BrowserWindow | undefined;
+let updater: Updater | undefined;
 
 // ---------------------------------------------------------------- window state
 
@@ -223,6 +225,8 @@ function buildMenu(): Menu {
       id: 'help',
       label: '&Help',
       submenu: [
+        { label: 'Check for updates…', click: () => updater?.checkNow() },
+        { type: 'separator' },
         {
           label: 'About Aye-aye',
           click: () =>
@@ -364,6 +368,7 @@ if (!app.requestSingleInstanceLock()) {
       handleMenuRequests(new URL(server.url).origin);
       mainWindow = await createWindow(server.url);
       if (SMOKE_TEST) await runSmokeTest(mainWindow);
+      else updater = startAutoUpdates(() => mainWindow);
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
