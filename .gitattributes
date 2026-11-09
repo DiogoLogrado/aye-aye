@@ -1,0 +1,5 @@
+# Store text files with LF line endings for everyone, whatever their local git settings.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary

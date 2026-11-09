@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.log
+
+# Local secrets never belong in the repo (connection strings live in the OS credential store).
+.env
+.env.*
+
+# Local assistant notes and settings.
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+
+# Installer output (attached to GitHub releases, not committed).
+release/

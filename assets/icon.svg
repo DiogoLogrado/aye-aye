@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!--
+    App icon: the aye-aye peeking over a database stack, white on the brand green.
+    Geometry is shared with client/components/Logo.tsx (the one-color title-bar mark); keep them in sync.
+    Regenerate the Windows icon after editing: npm run icons
+  -->
+  <defs>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <rect width="64" height="64" fill="#fff"/>
+      <!-- eyes cut out, pupils kept -->
+      <circle cx="26.5" cy="24.4" r="4.4" fill="#000"/>
+      <circle cx="37.5" cy="24.4" r="4.4" fill="#000"/>
+      <circle cx="26.9" cy="24.9" r="2" fill="#fff"/>
+      <circle cx="37.1" cy="24.9" r="2" fill="#fff"/>
+      <!-- head hidden behind the stack -->
+      <ellipse cx="32" cy="40" rx="18.4" ry="6.8" fill="#000"/>
+      <rect x="13.6" y="40" width="36.8" height="24" fill="#000"/>
+    </mask>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#0f7a4a"/>
+  <g mask="url(#cut)">
+    <g fill="#ffffff" transform="translate(32 26) scale(0.78) translate(-32 -31)">
+      <ellipse cx="16.5" cy="15" rx="9.5" ry="13.5" transform="rotate(-30 16.5 15)"/>
+      <ellipse cx="47.5" cy="15" rx="9.5" ry="13.5" transform="rotate(30 47.5 15)"/>
+      <ellipse cx="32" cy="31" rx="16" ry="13.5"/>
+      <ellipse cx="32" cy="40.5" rx="7" ry="5"/>
+    </g>
+  </g>
+  <!-- bushy tail, curling up from behind the stack on the right -->
+  <path d="M48.6 52 C54.5 51.5 59.5 47 60 39 C60.3 34 58.8 30 56 28.4 C56.8 31.2 56.8 34.5 55.8 38 C54.6 42.4 51.8 45.6 48.6 46.6 Z" fill="#ffffff"/>
+  <!-- database stack -->
+  <path d="M15 40v13c0 3 7.6 5.4 17 5.4s17-2.4 17-5.4V40M15 46.6c0 3 7.6 5.4 17 5.4s17-2.4 17-5.4" fill="none" stroke="#ffffff" stroke-width="2.6"/>
+  <ellipse cx="32" cy="40" rx="17" ry="5.4" fill="none" stroke="#ffffff" stroke-width="2.6"/>
+  <!-- two paws gripping the lid's back edge under the chin, like peeking over a wall:
+       knuckles above the rim, three short fingers hanging over it -->
+  <ellipse cx="22.6" cy="34.4" rx="3.3" ry="2.1" fill="#ffffff"/>
+  <path d="M20.9 34.6 L20.9 38.6 M22.6 34.6 L22.6 39 M24.3 34.6 L24.3 38.6" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round"/>
+  <ellipse cx="41.4" cy="34.4" rx="3.3" ry="2.1" fill="#ffffff"/>
+  <path d="M39.7 34.6 L39.7 38.6 M41.4 34.6 L41.4 39 M43.1 34.6 L43.1 38.6" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round"/>
+</svg>
