@@ -2,6 +2,12 @@
 
 Changes in each release, newest first. The installed app shows the entry for its new version after it updates, and each entry is the text of its GitHub release.
 
+## 0.5.0
+
+- Your open tabs and their queries are kept when you close the app, and come back the next time you open it. Restored tabs wait for **Run**, so nothing touches a database until you click.
+- **Ctrl+Shift+T** (**File ▸ Reopen closed tab**) brings back the last tab you closed, with its query.
+- Closing the app, or restarting it for an update, makes the window disappear at once. While an update installs, a small progress window shows.
+
 ## 0.4.0
 
 - After an update, the app shows what's new in that version.

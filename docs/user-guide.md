@@ -12,7 +12,7 @@ Uninstall from **Settings ▸ Apps**. Your saved connections and backups are kep
 
 The app checks for a new version when it starts and every few hours while it's open. A new version downloads in the background, with its progress on the taskbar icon. Then the app shows what's new and offers to restart:
 
-- **Restart now** installs it and reopens the app.
+- **Restart now** closes the app, installs the update (a small progress window shows for a few seconds) and reopens the app with your tabs.
 - **Later** installs it the next time you close the app.
 
 If the app is minimized when the update is ready, its taskbar button flashes and the message appears when you open the window again.
@@ -37,6 +37,12 @@ Click a collection to open it in a tab, newest documents first.
   `.sort()`, `.limit()`, `.skip()` and `.projection()` are supported, with paging. Switching from Builder to Raw carries the current query over.
 - **Count:** the document count of a whole collection is an instant estimate. The exact count of a filtered query runs when you click **Count**.
 
+### Tabs are kept
+
+Your open tabs and their queries (Builder filters, Raw text, sort and limit) are saved as you work, and come back the next time you open the app. Closing never asks you to save anything. Restored tabs show their query but don't run it: nothing connects to a database until you click **Run**. Tabs of a connection you've removed aren't restored.
+
+**Ctrl+Shift+T** (**File ▸ Reopen closed tab**) brings back the last tab you closed, with its query.
+
 ## Editing data
 
 - **Edit** a document as text, review a field-by-field diff, then save. Saving is refused if someone else changed the document after you loaded it.
@@ -52,7 +58,7 @@ Never allowed: `drop`, `dropDatabase`, `renameCollection`, `deleteMany({})`, `$o
 
 | Menu | |
 |---|---|
-| File | New connection (`Ctrl+Shift+N`), open the data or backups folder, exit |
+| File | New connection (`Ctrl+Shift+N`), reopen closed tab (`Ctrl+Shift+T`), open the data or backups folder, exit |
 | Edit | Undo, redo, cut, copy, paste, select all |
 | View | Reload (`Ctrl+R`), zoom in / out / reset (`Ctrl +`, `Ctrl -`, `Ctrl 0`, numpad too), full screen (`F11`) |
 | Help | Check for updates, version information |

@@ -352,6 +352,18 @@ body.resizing {
   color: var(--muted);
 }
 
+/* Restored tab before its first Run (and a tab that failed to render). */
+.not-run {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 48px auto;
+  padding: 0 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
 .tabs {
   display: flex;
   overflow-x: auto;

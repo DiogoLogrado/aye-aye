@@ -11,6 +11,7 @@ import type { FindParams, MongoService } from './mongoService';
 import { buildSort, formatDocument, parseUserFilter } from './query';
 import { contentSecurityPolicy, hostGuard, originGuard, tokenGuard } from './security';
 import type { WriteService } from './writeService';
+import { workspaceSchema, type WorkspaceStore } from './workspaceStore';
 
 export type MongoReader = Pick<
   MongoService,
@@ -26,6 +27,8 @@ export interface AppOptions {
   mongo: MongoReader;
   writes: Writer;
   verifyUri: (uri: string) => Promise<void>;
+  /** Saved tabs (session restore). Without it, /api/workspace doesn't exist. */
+  workspace?: WorkspaceStore;
   log?: (message: string) => void;
 }
 
@@ -282,6 +285,20 @@ export function createApp(options: AppOptions): Express {
     }),
   );
 
+  // Saved tabs can hold several long Raw commands, so this route gets a larger body limit than the
+  // rest of the API. Same guards. Mounted first, so the general 100 kB parser never sees it.
+  if (options.workspace) {
+    app.use(
+      '/api/workspace',
+      noStore,
+      originGuard(options.port),
+      tokenGuard(options.token),
+      express.json({ limit: '8mb' }),
+      workspaceRouter(options.workspace),
+      errorHandler(log),
+    );
+  }
+
   app.use(
     '/api',
     noStore,
@@ -293,4 +310,19 @@ export function createApp(options: AppOptions): Express {
   );
 
   return app;
+}
+
+function workspaceRouter(store: WorkspaceStore): express.Router {
+  const router = express.Router();
+  router.get('/', async (_req, res) => {
+    res.json({ workspace: await store.load() });
+  });
+  router.put('/', async (req, res) => {
+    await store.save(workspaceSchema.parse(req.body));
+    res.status(204).end();
+  });
+  router.use((_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+  return router;
 }

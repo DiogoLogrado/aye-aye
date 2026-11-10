@@ -38,6 +38,8 @@ let mainWindow: BrowserWindow | undefined;
 let updater: Updater | undefined;
 /** Origin of our server once it has started; until then the window only shows the splash file. */
 let appOrigin: string | undefined;
+/** Quitting: tabs are saved and the server is closing (see before-quit). */
+let shuttingDown = false;
 
 const clientDir = () => path.join(app.getAppPath(), 'dist', 'client');
 
@@ -112,7 +114,7 @@ function restrictPermissions(): void {
  * Asks the page to do something (e.g. open "Add connection"). One-way: the page only
  * receives a DOM event; it gets no access to Electron or Node.
  */
-function sendToPage(action: 'add-connection'): void {
+function sendToPage(action: 'add-connection' | 'reopen-tab'): void {
   void mainWindow?.webContents.executeJavaScript(
     `window.dispatchEvent(new CustomEvent('aye-aye:menu', { detail: ${JSON.stringify(action)} }))`,
   );
@@ -135,6 +137,8 @@ function runShortcut(shortcut: AppShortcut): void {
       return zoom('reset');
     case 'new-connection':
       return sendToPage('add-connection');
+    case 'reopen-tab':
+      return sendToPage('reopen-tab');
     case 'reload':
       return win.webContents.reload();
     case 'fullscreen':
@@ -192,6 +196,12 @@ function buildMenu(): Menu {
           accelerator: 'CmdOrCtrl+Shift+N',
           registerAccelerator: false,
           click: () => sendToPage('add-connection'),
+        },
+        {
+          label: 'Reopen closed tab',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          registerAccelerator: false,
+          click: () => sendToPage('reopen-tab'),
         },
         { type: 'separator' },
         { label: 'Open data folder', click: () => openFolder(dataDir) },
@@ -303,9 +313,40 @@ async function createWindow(): Promise<BrowserWindow> {
   win.once('ready-to-show', () => {
     if (!SMOKE_TEST) win.show();
   });
-  win.on('close', () => saveWindowState(win));
+  // Closing: disappear at once, save the open tabs, then really close.
+  let tabsSaved = false;
+  win.on('close', (event) => {
+    rememberWindowState(win);
+    if (tabsSaved || shuttingDown || SMOKE_TEST) return;
+    event.preventDefault();
+    tabsSaved = true;
+    win.hide();
+    void saveOpenTabs(win).finally(() => {
+      if (!win.isDestroyed()) win.close();
+    });
+  });
   await win.loadFile(path.join(clientDir(), 'splash.html'));
   return win;
+}
+
+/** Saves the window's size and position once, while it's still on screen. */
+const windowStateSaved = new WeakSet<BrowserWindow>();
+function rememberWindowState(win: BrowserWindow): void {
+  if (windowStateSaved.has(win) || win.isDestroyed()) return;
+  windowStateSaved.add(win);
+  saveWindowState(win);
+}
+
+/**
+ * The page saves its open tabs continuously; this makes it save the last edit now. Waits at most
+ * 2 s, so a stuck page can't keep the app from closing.
+ */
+async function saveOpenTabs(win: BrowserWindow): Promise<void> {
+  if (win.isDestroyed() || !appOrigin) return;
+  await Promise.race([
+    win.webContents.executeJavaScript('window.ayeAyeFlushWorkspace?.()').catch(() => undefined),
+    new Promise((resolve) => setTimeout(resolve, 2000)),
+  ]);
 }
 
 /** Smoke test: the splash must render styled, with its logo, from disk alone. */
@@ -422,11 +463,20 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => app.quit());
 
   // Close database connections cleanly before exiting.
-  let shuttingDown = false;
   app.on('before-quit', (event) => {
-    if (!server || shuttingDown) return;
+    const running = server;
+    if (!running || shuttingDown) return;
     event.preventDefault();
     shuttingDown = true;
-    void server.close().finally(() => app.quit());
+    // Exit, or Restart now for an update: the window disappears at once, then the open tabs are
+    // saved and database connections closed (as fully as before) behind the scenes.
+    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+    if (win) {
+      rememberWindowState(win);
+      win.hide();
+    }
+    void (win ? saveOpenTabs(win) : Promise.resolve())
+      .then(() => running.close())
+      .finally(() => app.quit());
   });
 }

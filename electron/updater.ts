@@ -121,8 +121,9 @@ export function startAutoUpdates(getWindow: () => BrowserWindow | undefined): Up
           defaultId: 0,
           cancelId: 1,
         }).then(({ response }) => {
-          // Silent install, then start the app again.
-          if (response === 0) autoUpdater.quitAndInstall(true, true);
+          // The app window closes at once (see before-quit in main.ts); the installer then shows its
+          // small progress window while it replaces the files, and starts the app again.
+          if (response === 0) autoUpdater.quitAndInstall(false, true);
         }),
     );
 

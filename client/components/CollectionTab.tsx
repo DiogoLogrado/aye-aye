@@ -1,9 +1,10 @@
 import { Play, TriangleAlert, Zap } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage, type FieldInfo, type FindResult, type Target } from '../api';
 import type { TabInfo } from '../App';
 import { buildFindCommand, isBareFilter, isFindCommand, isWriteCommand } from '../commandText';
 import { buildFilter, type FilterRow } from '../queryBuilder';
+import { rowsFromState, type TabState } from '../workspace';
 import { useConfirm, useToast, useUndoAction } from './feedback';
 import { FilterBuilder, newRow } from './FilterBuilder';
 import { ResultsView, type CommandResult, type TotalCount } from './ResultsView';
@@ -36,28 +37,34 @@ interface Request {
 
 const isEmptyFilter = (filter: string) => /^\s*(\{\s*\})?\s*$/.test(filter);
 const sortById = (id: SortId) => SORTS.find((s) => s.id === id) ?? SORTS[0];
+const isSortId = (id: string): id is SortId => SORTS.some((s) => s.id === id);
+const typesByPath = (fields: FieldInfo[]) => Object.fromEntries(fields.map((f) => [f.path, f.types]));
 
 interface Props {
   tab: TabInfo;
   active: boolean;
+  /** Reports the query as it changes, so it can be saved for the next start. */
+  onStateChange?: (key: string, state: TabState) => void;
 }
 
-export function CollectionTab({ tab, active }: Props) {
-  const [mode, setMode] = useState<'builder' | 'raw'>('builder');
-  const [rows, setRows] = useState<FilterRow[]>(() => [newRow()]);
-  const [raw, setRaw] = useState('');
+export function CollectionTab({ tab, active, onStateChange }: Props) {
+  // A restored (or reopened) tab starts from its saved query, and nothing runs until Run.
+  const initial = tab.initial;
+  const [mode, setMode] = useState<'builder' | 'raw'>(initial?.mode ?? 'builder');
+  const [rows, setRows] = useState<FilterRow[]>(() => (initial ? rowsFromState(initial) : [newRow()]));
+  const [raw, setRaw] = useState(initial?.raw ?? '');
   /** The text last handed over from the Builder; Raw differing from it means the user edited it. */
-  const [rawFromBuilder, setRawFromBuilder] = useState('');
-  const [sortId, setSortId] = useState<SortId>('newest');
-  const [limit, setLimit] = useState(20);
+  const [rawFromBuilder, setRawFromBuilder] = useState(initial && !initial.rawEdited ? initial.raw : '');
+  const [sortId, setSortId] = useState<SortId>(initial && isSortId(initial.sortId) ? initial.sortId : 'newest');
+  const [limit, setLimit] = useState(initial && LIMITS.includes(initial.limit) ? initial.limit : 20);
   const [fields, setFields] = useState<FieldInfo[]>([]);
 
-  const [request, setRequest] = useState<Request>({
-    query: { kind: 'builder', filter: '{}', sortId: 'newest', limit: 20 },
-    skip: 0,
-    nonce: 0,
-    queryVersion: 0,
-  });
+  /** null until the first Run in a restored tab: nothing is fetched before that. */
+  const [request, setRequest] = useState<Request | null>(() =>
+    tab.deferred
+      ? null
+      : { query: { kind: 'builder', filter: '{}', sortId: 'newest', limit: 20 }, skip: 0, nonce: 0, queryVersion: 0 },
+  );
   const [result, setResult] = useState<FindResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,27 +81,47 @@ export function CollectionTab({ tab, active }: Props) {
     () => ({ connectionId: tab.connectionId, db: tab.db, collection: tab.collection }),
     [tab.connectionId, tab.db, tab.collection],
   );
-  const fieldTypes = useMemo(() => Object.fromEntries(fields.map((f) => [f.path, f.types])), [fields]);
+  const fieldTypes = useMemo(() => typesByPath(fields), [fields]);
   const builderFilter = buildFilter(rows, fieldTypes);
   const sort = sortById(sortId);
   const builderCommand = (multiline: boolean) =>
     buildFindCommand(tab.collection, builderFilter, { field: sort.field, direction: sort.direction }, limit, multiline);
   const rawIsWrite = mode === 'raw' && isWriteCommand(raw);
 
-  // Sample field names once so the builder can autocomplete them and infer value types.
   useEffect(() => {
+    onStateChange?.(tab.key, {
+      mode,
+      rows: rows.map(({ join, field, op, value }) => ({ join, field, op, value })),
+      raw,
+      rawEdited: raw !== rawFromBuilder,
+      sortId,
+      limit,
+    });
+  }, [onStateChange, tab.key, mode, rows, raw, rawFromBuilder, sortId, limit]);
+
+  // Sample field names once so the builder can autocomplete them and infer value types.
+  // Shared by the effect below and the first Run of a restored tab, so it's only requested once.
+  const fieldsRequest = useRef<Promise<FieldInfo[]> | null>(null);
+  const loadFields = useCallback(
+    () =>
+      (fieldsRequest.current ??= api
+        .sampleFields(tab.connectionId, tab.db, tab.collection)
+        .catch(() => [] as FieldInfo[])), // autocomplete is a nicety; queries still work without it
+    [tab.connectionId, tab.db, tab.collection],
+  );
+  const started = request !== null;
+  useEffect(() => {
+    if (!started) return;
     let cancelled = false;
-    api
-      .sampleFields(tab.connectionId, tab.db, tab.collection)
-      .then((f) => !cancelled && setFields(f))
-      .catch(() => undefined); // autocomplete is a nicety; queries still work without it
+    void loadFields().then((f) => !cancelled && setFields(f));
     return () => {
       cancelled = true;
     };
-  }, [tab.connectionId, tab.db, tab.collection]);
+  }, [started, loadFields]);
 
   // Every change to `request` triggers exactly one fetch; stale responses are ignored.
   useEffect(() => {
+    if (!request) return;
     let cancelled = false;
     const q = request.query;
     setLoading(true);
@@ -140,28 +167,39 @@ export function CollectionTab({ tab, active }: Props) {
     [target, notify],
   );
 
+  const currentQuery = request?.query;
+  const queryVersion = request?.queryVersion;
   useEffect(() => {
+    if (!currentQuery) return;
     let cancelled = false;
     setTotal({ state: 'unknown' });
-    if (request.query.kind === 'builder' && isEmptyFilter(request.query.filter)) countFor(request.query, () => cancelled);
+    if (currentQuery.kind === 'builder' && isEmptyFilter(currentQuery.filter)) countFor(currentQuery, () => cancelled);
     return () => {
       cancelled = true;
     };
     // queryVersion changes on Run/Refresh (and after writes) but not when paging, so paging keeps the total.
-  }, [request.query, request.queryVersion, countFor]);
+  }, [currentQuery, queryVersion, countFor]);
 
   const start = (query: Query) => {
     setCommandResult(null);
     setCommandError(null);
-    setRequest((r) => ({ query, skip: 0, nonce: r.nonce + 1, queryVersion: r.queryVersion + 1 }));
+    setRequest((r) => ({ query, skip: 0, nonce: (r?.nonce ?? 0) + 1, queryVersion: (r?.queryVersion ?? 0) + 1 }));
   };
 
-  const runBuilder = (overrides: { sortId?: SortId; limit?: number } = {}) =>
-    start({ kind: 'builder', filter: builderFilter, sortId: overrides.sortId ?? sortId, limit: overrides.limit ?? limit });
+  const runBuilder = async (overrides: { sortId?: SortId; limit?: number } = {}) => {
+    let types = fieldTypes;
+    if (!started) {
+      // First Run of a restored tab: the filter needs the field types (e.g. to turn an id into
+      // ObjectId(…)), so sample them first.
+      setLoading(true);
+      types = typesByPath(await loadFields());
+    }
+    start({ kind: 'builder', filter: buildFilter(rows, types), sortId: overrides.sortId ?? sortId, limit: overrides.limit ?? limit });
+  };
 
   const refresh = useCallback(() => {
     setCommandResult(null);
-    setRequest((r) => ({ ...r, nonce: r.nonce + 1, queryVersion: r.queryVersion + 1 }));
+    setRequest((r) => r && { ...r, nonce: r.nonce + 1, queryVersion: r.queryVersion + 1 });
   }, []);
 
   const undoAction = useUndoAction(refresh);
@@ -257,8 +295,8 @@ export function CollectionTab({ tab, active }: Props) {
     else void execute(text);
   };
 
-  const run = () => (mode === 'builder' ? runBuilder() : runRaw());
-  const pageSize = result?.limit ?? (request.query.kind === 'builder' ? request.query.limit : 20);
+  const run = () => (mode === 'builder' ? void runBuilder() : runRaw());
+  const pageSize = result?.limit ?? (request?.query.kind === 'builder' ? request.query.limit : 20);
 
   return (
     <div className="collection-tab" hidden={!active}>
@@ -292,7 +330,7 @@ export function CollectionTab({ tab, active }: Props) {
                   onChange={(e) => {
                     const next = e.target.value as SortId;
                     setSortId(next);
-                    runBuilder({ sortId: next });
+                    void runBuilder({ sortId: next });
                   }}
                 >
                   {SORTS.map((s) => (
@@ -315,7 +353,7 @@ export function CollectionTab({ tab, active }: Props) {
                   onChange={(e) => {
                     const next = Number(e.target.value);
                     setLimit(next);
-                    runBuilder({ limit: next });
+                    void runBuilder({ limit: next });
                   }}
                 >
                   {LIMITS.map((l) => (
@@ -347,7 +385,7 @@ export function CollectionTab({ tab, active }: Props) {
 
         {mode === 'builder' ? (
           <>
-            <FilterBuilder rows={rows} fields={fields} onRowsChange={setRows} onSubmit={() => runBuilder()} />
+            <FilterBuilder rows={rows} fields={fields} onRowsChange={setRows} onSubmit={() => void runBuilder()} />
             <div className="query-preview" title="The query the Builder runs. Switch to Raw to edit it as text.">
               <ShellCode code={builderCommand(false)} />
             </div>
@@ -378,8 +416,8 @@ export function CollectionTab({ tab, active }: Props) {
             />
             <div className="hint">
               <code>find(…)</code> shows results here with paging (<code>.sort()</code>, <code>.limit()</code>,{' '}
-              <code>.skip()</code>, <code>.projection()</code> work). Writes like <code>updateMany</code> show a preview and
-              need edits allowed. Ctrl+Enter to run.
+              <code>.skip()</code>, <code>.projection()</code> work). Writes like <code>updateMany</code> show a preview to
+              confirm first. Ctrl+Enter to run.
             </div>
           </>
         )}
@@ -387,20 +425,35 @@ export function CollectionTab({ tab, active }: Props) {
         {commandError && <div className="error inline-error">{commandError}</div>}
       </div>
 
-      <ResultsView
-        target={target}
-        result={result}
-        commandResult={commandResult}
-        skip={request.skip}
-        loading={loading}
-        error={error}
-        onPrev={() => setRequest((r) => ({ ...r, skip: Math.max(0, r.skip - pageSize), nonce: r.nonce + 1 }))}
-        onNext={() => setRequest((r) => ({ ...r, skip: r.skip + pageSize, nonce: r.nonce + 1 }))}
-        onRefresh={refresh}
-        onClearCommandResult={() => setCommandResult(null)}
-        total={total}
-        onCount={() => countFor(request.query)}
-      />
+      {request === null && !commandResult ? (
+        <section className="results">
+          <div className="not-run">
+            <p>Restored from your last session. Nothing has run yet.</p>
+            {rawIsWrite ? (
+              <p>Press Execute above to preview this command.</p>
+            ) : (
+              <button className="btn primary" onClick={run} disabled={loading || executing}>
+                <Play /> Run
+              </button>
+            )}
+          </div>
+        </section>
+      ) : (
+        <ResultsView
+          target={target}
+          result={result}
+          commandResult={commandResult}
+          skip={request?.skip ?? 0}
+          loading={loading}
+          error={error}
+          onPrev={() => setRequest((r) => r && { ...r, skip: Math.max(0, r.skip - pageSize), nonce: r.nonce + 1 })}
+          onNext={() => setRequest((r) => r && { ...r, skip: r.skip + pageSize, nonce: r.nonce + 1 })}
+          onRefresh={refresh}
+          onClearCommandResult={() => setCommandResult(null)}
+          total={total}
+          onCount={() => request && countFor(request.query)}
+        />
+      )}
     </div>
   );
 }

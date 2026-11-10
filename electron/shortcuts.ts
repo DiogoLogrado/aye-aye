@@ -1,6 +1,13 @@
 import { zoomShortcut, type KeyInput } from './zoom';
 
-export type AppShortcut = 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'new-connection' | 'reload' | 'fullscreen';
+export type AppShortcut =
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'zoom-reset'
+  | 'new-connection'
+  | 'reopen-tab'
+  | 'reload'
+  | 'fullscreen';
 
 /**
  * App keyboard shortcuts, matched in before-input-event rather than via menu accelerators:
@@ -20,5 +27,6 @@ export function appShortcut(input: KeyInput & { shift: boolean }): AppShortcut |
   const ctrlOnly = input.control && !input.alt && !input.meta;
   if (ctrlOnly && !input.shift && input.code === 'KeyR') return 'reload';
   if (ctrlOnly && input.shift && input.code === 'KeyN') return 'new-connection';
+  if (ctrlOnly && input.shift && input.code === 'KeyT') return 'reopen-tab';
   return undefined;
 }

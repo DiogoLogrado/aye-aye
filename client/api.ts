@@ -1,4 +1,5 @@
 import type { ViewNode } from '../shared/viewNode';
+import type { Workspace } from '../shared/workspace';
 
 export type { ViewNode };
 
@@ -91,13 +92,24 @@ export class ApiError extends Error {
 
 const token = document.querySelector<HTMLMetaElement>('meta[name="aye-aye-token"]')?.content ?? '';
 
-async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+async function request<T>(
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  path: string,
+  body?: unknown,
+  options: { keepalive?: boolean } = {},
+): Promise<T> {
   const headers: Record<string, string> = { 'x-aye-aye-token': token };
   if (body !== undefined) headers['content-type'] = 'application/json';
 
   let res: Response;
   try {
-    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await fetch(`/api${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      // Lets a save started while the page closes finish anyway.
+      keepalive: options.keepalive,
+    });
   } catch {
     throw new ApiError('Aye-aye server is not running.', 0);
   }
@@ -151,6 +163,9 @@ export const api = {
       ...(confirmToken ? { confirmToken } : {}),
     }),
   undo: (backupId: string) => request<{ summary: string }>('POST', `/backups/${seg(backupId)}/undo`),
+
+  getWorkspace: () => request<{ workspace: Workspace | null }>('GET', '/workspace'),
+  saveWorkspace: (workspace: Workspace, keepalive = false) => request<void>('PUT', '/workspace', workspace, { keepalive }),
 };
 
 export const errorMessage = (e: unknown) => (e instanceof Error ? e.message : 'Unexpected error');

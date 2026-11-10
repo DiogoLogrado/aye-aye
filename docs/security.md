@@ -10,6 +10,7 @@ Aye-aye runs entirely on your machine. It talks to the databases you add, and to
 | Desktop window | Sandboxed: no Node.js access from the page, no navigation to other sites, no popups, and every permission is denied except clipboard writes. |
 | App files | Electron's hardening fuses are on: the app only loads its own packaged, integrity-checked code, and can't be started as a plain Node.js runtime or with a debugger. |
 | Queries | Parsed without `eval`. Server-side JavaScript operators are rejected. |
+| Saved tabs | Open tabs and their query text are saved in `workspace.json` in the data folder, so values typed into filters are stored there in plain text, as the backups store documents. Connection strings never are. |
 | Writes | Previewed, confirmed, backed up and undoable. Destructive operations such as dropping collections are not available at all. See [Editing data](user-guide.md#editing-data). |
 
 ## Updates
@@ -23,6 +24,7 @@ Aye-aye is meant to be safe to point at a database other applications depend on:
 - Every read is stopped by the server after 15 seconds, and pages are capped at 200 documents.
 - At most 5 connections, closed after 60 seconds idle.
 - Nothing polls or refreshes on its own. Exact counts of a filter only run when you click **Count**.
+- Tabs restored from the last session don't run until you click **Run**, so starting the app doesn't touch any database.
 - Field samples used for autocomplete are cached for 5 minutes.
 - Connections identify themselves in `db.currentOp()` and the server logs as
   `Aye-aye (local MongoDB query tool) <user>@<computer>`.

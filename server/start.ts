@@ -9,6 +9,7 @@ import { appDataDir } from './config';
 import { KeyringConnectionStore } from './connectionStore';
 import { MongoService } from './mongoService';
 import { createSessionToken, injectToken } from './security';
+import { FileWorkspaceStore } from './workspaceStore';
 import { WriteService } from './writeService';
 
 export const HOST = '127.0.0.1'; // loopback only: never reachable from the network
@@ -72,7 +73,8 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   const mongo = new MongoService(store);
   const backups = new BackupStore(path.join(dataDir, 'backups'));
   const writes = new WriteService((id, db, coll) => mongo.collection(id, db, coll), store, backups);
-  const app = createApp({ port, token, isProd: options.isProd, store, mongo, writes, verifyUri: MongoService.verify });
+  const workspace = new FileWorkspaceStore(dataDir);
+  const app = createApp({ port, token, isProd: options.isProd, store, mongo, writes, workspace, verifyUri: MongoService.verify });
 
   const sendHtml = (html: string, res: express.Response) =>
     res.set('Cache-Control', 'no-store').type('html').send(injectToken(html, token));
