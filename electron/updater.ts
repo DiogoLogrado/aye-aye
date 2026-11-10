@@ -2,10 +2,12 @@
 //
 // The installed app checks on start and every few hours, downloads a newer version in the
 // background (verified against the SHA-512 in the release's latest.yml), then asks to restart.
-// Choosing "Later" installs it the next time the app is closed.
+// Choosing "Later" installs it the next time the app is closed. Download progress shows on the
+// taskbar icon.
 import { app, dialog, type BrowserWindow, type MessageBoxOptions } from 'electron';
 // electron-updater is CommonJS with getter exports, so take the default export.
 import electronUpdater, { type UpdateInfo } from 'electron-updater';
+import { releaseNotesText } from './changelog';
 
 const { autoUpdater } = electronUpdater;
 
@@ -20,6 +22,32 @@ export function startAutoUpdates(getWindow: () => BrowserWindow | undefined): Up
   const show = (options: MessageBoxOptions) => {
     const win = getWindow();
     return win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options);
+  };
+
+  // A message box attached to a minimized window opens on the primary monitor, wherever the app
+  // is. So while minimized, flash the taskbar button and show it once the window is back.
+  let waitingForWindow = false;
+  const showWhenOnScreen = (open: () => void) => {
+    const win = getWindow();
+    if (!win || win.isDestroyed() || !win.isMinimized()) return open();
+    if (waitingForWindow) return;
+    waitingForWindow = true;
+    win.flashFrame(true);
+    win.once('restore', () => {
+      waitingForWindow = false;
+      win.flashFrame(false);
+      open();
+    });
+  };
+
+  const setTaskbarProgress = (fraction: number) => {
+    const win = getWindow();
+    if (win && !win.isDestroyed()) win.setProgressBar(fraction);
+  };
+
+  const whatsNew = (info: UpdateInfo) => {
+    const notes = releaseNotesText(info.releaseNotes);
+    return notes ? `\n\nWhat's new:\n${notes}` : '';
   };
 
   if (!app.isPackaged) {
@@ -52,9 +80,11 @@ export function startAutoUpdates(getWindow: () => BrowserWindow | undefined): Up
       type: 'info',
       title: 'Update available',
       message: `Aye-aye ${info.version} is downloading.`,
-      detail: "You'll be asked to restart when it's ready.",
+      detail: `You'll be asked to restart when it's ready. Progress shows on the taskbar icon.${whatsNew(info)}`,
     });
   });
+
+  autoUpdater.on('download-progress', (progress) => setTaskbarProgress(progress.percent / 100));
 
   autoUpdater.on('update-not-available', () => {
     if (!manualCheck) return;
@@ -67,6 +97,7 @@ export function startAutoUpdates(getWindow: () => BrowserWindow | undefined): Up
   });
 
   autoUpdater.on('error', (error) => {
+    setTaskbarProgress(-1);
     // Automatic checks fail quietly (offline, proxy, GitHub down); a manual check says why.
     if (!manualCheck) return;
     manualCheck = false;
@@ -79,20 +110,24 @@ export function startAutoUpdates(getWindow: () => BrowserWindow | undefined): Up
   });
 
   const promptRestart = (info: UpdateInfo) =>
-    void show({
-      type: 'info',
-      title: 'Update ready',
-      message: `Aye-aye ${info.version} is ready to install.`,
-      detail: 'Restart now to update, or it will be installed when you close the app.',
-      buttons: ['Restart now', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-    }).then(({ response }) => {
-      // Silent install, then start the app again.
-      if (response === 0) autoUpdater.quitAndInstall(true, true);
-    });
+    showWhenOnScreen(
+      () =>
+        void show({
+          type: 'info',
+          title: 'Update ready',
+          message: `Aye-aye ${info.version} is ready to install.`,
+          detail: `Restart now to update, or it will be installed when you close the app.${whatsNew(info)}`,
+          buttons: ['Restart now', 'Later'],
+          defaultId: 0,
+          cancelId: 1,
+        }).then(({ response }) => {
+          // Silent install, then start the app again.
+          if (response === 0) autoUpdater.quitAndInstall(true, true);
+        }),
+    );
 
   autoUpdater.on('update-downloaded', (info) => {
+    setTaskbarProgress(-1);
     manualCheck = false;
     if (downloaded?.version === info.version) return;
     downloaded = info;

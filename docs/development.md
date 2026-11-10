@@ -44,17 +44,23 @@ The desktop app starts its own server on `127.0.0.1:4318` (or any free port) and
 
 Installed apps update themselves from GitHub Releases, so a release reaches everyone who has the app.
 
+You need the [GitHub CLI](https://cli.github.com/) (`gh`) and a GitHub token with **Contents: Read and write** on this repository.
+
 1. Merge the changes into `main` and pull.
-2. Bump `version` in `package.json` (for example `0.2.0` → `0.3.0`), commit and push it.
-3. Set a GitHub token with **Contents: Read and write** on this repository, then release:
+2. Bump `version` in `package.json` (for example `0.3.0` → `0.4.0`) and rename `## Unreleased` in `CHANGELOG.md` to that version. Commit and push.
+3. Release. The first line asks for the token without showing it or saving it in the shell history:
 
    ```powershell
-   $env:GH_TOKEN = "<token>"
+   $env:GH_TOKEN = [System.Net.NetworkCredential]::new('', (Read-Host 'GitHub token' -AsSecureString)).Password
    npm run release
    Remove-Item Env:GH_TOKEN
    ```
 
-`npm run release` refuses to run unless you're on `main`, the working tree is clean, local `main` matches GitHub, and the version hasn't been released yet. It runs the tests, builds the installer, and creates the `v<version>` release with three files: the installer, its `.blockmap` (for smaller, partial downloads) and `latest.yml` (the version and SHA-512 the app checks). Add release notes on GitHub afterwards if you like.
+`npm run release` refuses to run unless you're on `main`, the working tree is clean, local `main` matches GitHub, the version hasn't been released yet, and `CHANGELOG.md` has an entry for it. It runs the tests and builds the installer. Then `scripts/publish-release.mjs` checks that `latest.yml` matches the installer and creates the `v<version>` release with `gh`. The release text is the changelog entry, and the release has three files: the installer, its `.blockmap` (for smaller, partial downloads) and `latest.yml` (the version and SHA-512 the app checks).
+
+The release is created as a draft, the files are uploaded, and only then is it published, so installed apps never see a release with missing files. If an upload fails, delete the leftover draft on GitHub and run `npm run release` again. `node --import tsx scripts/publish-release.mjs --dry-run` runs the checks on the files in `release/` without publishing.
+
+The installed app shows the changelog entry for its new version once, after it updates, so write entries for people using the app.
 
 ## Dependencies
 

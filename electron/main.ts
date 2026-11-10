@@ -20,6 +20,7 @@ import { appDataDir } from '../server/config';
 import type { RunningServer } from '../server/start';
 import { appShortcut, type AppShortcut } from './shortcuts';
 import type { Updater } from './updater';
+import { showWhatsNewOnce } from './whatsNew';
 import { nextZoomLevel, type ZoomAction } from './zoom';
 
 /** A stable origin keeps UI preferences (localStorage). 4317 stays free for `npm start`. */
@@ -405,6 +406,8 @@ if (!app.requestSingleInstanceLock()) {
 
       if (SMOKE_TEST) await runSmokeTest(win, splashOk);
       else {
+        // Only the installed app: running from source shares the data folder but not the version history.
+        if (app.isPackaged) showWhatsNewOnce(win);
         const { startAutoUpdates } = await import('./updater');
         updater = startAutoUpdates(() => mainWindow);
       }

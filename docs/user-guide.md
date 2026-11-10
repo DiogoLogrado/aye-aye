@@ -10,10 +10,14 @@ Uninstall from **Settings ▸ Apps**. Your saved connections and backups are kep
 
 ## Updates
 
-The app checks for a new version when it starts and every few hours while it's open. A new version downloads in the background, then the app offers to restart:
+The app checks for a new version when it starts and every few hours while it's open. A new version downloads in the background, with its progress on the taskbar icon. Then the app shows what's new and offers to restart:
 
 - **Restart now** installs it and reopens the app.
 - **Later** installs it the next time you close the app.
+
+If the app is minimized when the update is ready, its taskbar button flashes and the message appears when you open the window again.
+
+After an update, the app shows what changed, once. The full history is in the [changelog](../CHANGELOG.md).
 
 **Help ▸ Check for updates…** checks right away. Your connections, backups and settings are kept across updates.
 

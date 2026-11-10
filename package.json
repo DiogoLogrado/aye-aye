@@ -1,6 +1,6 @@
 {
   "name": "aye-aye",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "A local MongoDB browser with a visual query builder. Every change is previewed, backed up and can be undone.",
   "type": "module",
@@ -23,7 +23,7 @@
     "app:smoke": "npm run build:app && node scripts/launch-electron.mjs --smoke-test",
     "icons": "node scripts/build-icons.mjs",
     "dist": "npm run build:app && electron-builder --win nsis --publish never",
-    "release": "node scripts/check-release.mjs && npm test && npm run build:app && electron-builder --win nsis --publish always"
+    "release": "node --import tsx scripts/check-release.mjs && npm test && npm run build:app && electron-builder --win nsis --publish never && node --import tsx scripts/publish-release.mjs"
   },
   "dependencies": {
     "@napi-rs/keyring": "^1.3.0",
@@ -63,6 +63,7 @@
       "dist/**/*",
       "!dist/**/*.map",
       "assets/icon.ico",
+      "CHANGELOG.md",
       "package.json"
     ],
     "asar": true,
