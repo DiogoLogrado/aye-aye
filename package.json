@@ -1,6 +1,6 @@
 {
   "name": "aye-aye",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "A local MongoDB browser with a visual query builder. Every change is previewed, backed up and can be undone.",
   "type": "module",
@@ -18,7 +18,7 @@
     "start": "tsx server/index.ts --prod",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run-tests.mjs",
-    "build:app": "npm run build && esbuild electron/main.ts --bundle --platform=node --format=esm --target=node24 --packages=external --sourcemap --outfile=dist/electron/main.mjs && esbuild electron/preload.ts --bundle --platform=node --format=cjs --target=node24 --external:electron --outfile=dist/electron/preload.cjs",
+    "build:app": "npm run build && node scripts/build-electron.mjs",
     "app": "npm run build:app && node scripts/launch-electron.mjs",
     "app:smoke": "npm run build:app && node scripts/launch-electron.mjs --smoke-test",
     "icons": "node scripts/build-icons.mjs",

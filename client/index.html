@@ -6,10 +6,21 @@
     <meta name="aye-aye-token" content="__AYE_AYE_TOKEN__" />
     <meta name="referrer" content="no-referrer" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/splash.css" />
     <title>Aye-aye</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Startup screen until React renders (same markup as public/splash.html). -->
+      <div class="splash" role="status" aria-label="Loading Aye-aye">
+        <div class="splash-titlebar"></div>
+        <div class="splash-body">
+          <img class="splash-logo" src="/favicon.svg" width="72" height="72" alt="" />
+          <div class="splash-name">Aye-aye</div>
+          <div class="splash-progress"></div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/main.tsx"></script>
   </body>
 </html>

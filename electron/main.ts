@@ -14,10 +14,12 @@ import {
   type Rectangle,
   type WebContents,
 } from 'electron';
+// The server and the updater are imported lazily (see "lifecycle"): loading mongodb, express and
+// electron-updater takes seconds on a cold start, and the window should appear before that.
 import { appDataDir } from '../server/config';
-import { startServer, type RunningServer } from '../server/start';
+import type { RunningServer } from '../server/start';
 import { appShortcut, type AppShortcut } from './shortcuts';
-import { startAutoUpdates, type Updater } from './updater';
+import type { Updater } from './updater';
 import { nextZoomLevel, type ZoomAction } from './zoom';
 
 /** A stable origin keeps UI preferences (localStorage). 4317 stays free for `npm start`. */
@@ -33,6 +35,10 @@ app.setAppUserModelId('local.aye-aye');
 let server: RunningServer | undefined;
 let mainWindow: BrowserWindow | undefined;
 let updater: Updater | undefined;
+/** Origin of our server once it has started; until then the window only shows the splash file. */
+let appOrigin: string | undefined;
+
+const clientDir = () => path.join(app.getAppPath(), 'dist', 'client');
 
 // ---------------------------------------------------------------- window state
 
@@ -70,10 +76,10 @@ function saveWindowState(win: BrowserWindow): void {
 // ---------------------------------------------------------------- security
 
 /** The page may only ever show our own server: no navigation elsewhere, no popups, no webviews. */
-function lockDown(contents: WebContents, allowedOrigin: string): void {
+function lockDown(contents: WebContents): void {
   const sameOrigin = (url: string) => {
     try {
-      return new URL(url).origin === allowedOrigin;
+      return appOrigin !== undefined && new URL(url).origin === appOrigin;
     } catch {
       return false;
     }
@@ -88,14 +94,14 @@ function lockDown(contents: WebContents, allowedOrigin: string): void {
   contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 }
 
-function restrictPermissions(allowedOrigin: string): void {
+function restrictPermissions(): void {
   // Electron grants every permission by default; we only need clipboard writes (Copy buttons).
   const allowed = new Set(['clipboard-sanitized-write']);
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
-    callback(allowed.has(permission) && new URL(contents.getURL()).origin === allowedOrigin);
+    callback(allowed.has(permission) && appOrigin !== undefined && new URL(contents.getURL()).origin === appOrigin);
   });
   session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) => {
-    return allowed.has(permission) && requestingOrigin === allowedOrigin;
+    return allowed.has(permission) && appOrigin !== undefined && requestingOrigin === appOrigin;
   });
 }
 
@@ -150,11 +156,11 @@ const titleBarOverlay = () =>
  * The page's title bar asks to open a native menu (via the preload bridge). Only our own
  * page may ask, only for the four known menus, and coordinates are bounded numbers.
  */
-function handleMenuRequests(allowedOrigin: string): void {
+function handleMenuRequests(): void {
   ipcMain.on('menu:open', (event, name: unknown, x: unknown, y: unknown) => {
     const win = mainWindow;
-    if (!win || event.sender !== win.webContents) return;
-    if (new URL(event.senderFrame?.url ?? 'about:blank').origin !== allowedOrigin) return;
+    if (!win || !appOrigin || event.sender !== win.webContents) return;
+    if (new URL(event.senderFrame?.url ?? 'about:blank').origin !== appOrigin) return;
     if (typeof name !== 'string' || !MENU_IDS.has(name)) return;
     if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return;
     // The page measures in CSS pixels; menus are positioned in window coordinates (zoom applied).
@@ -251,7 +257,11 @@ function buildMenu(): Menu {
 
 // ---------------------------------------------------------------- window
 
-async function createWindow(url: string): Promise<BrowserWindow> {
+/**
+ * Opens the window right away with the static splash screen (a file: no server needed).
+ * The app replaces it once the server is up (see "lifecycle").
+ */
+async function createWindow(): Promise<BrowserWindow> {
   const state = loadWindowState();
   const win = new BrowserWindow({
     ...(state?.bounds ?? { width: 1400, height: 900 }),
@@ -279,7 +289,7 @@ async function createWindow(url: string): Promise<BrowserWindow> {
   });
   if (state?.maximized) win.maximize();
 
-  lockDown(win.webContents, new URL(url).origin);
+  lockDown(win.webContents);
   win.webContents.on('before-input-event', (event, input) => {
     const shortcut = appShortcut(input);
     if (!shortcut) return;
@@ -293,11 +303,23 @@ async function createWindow(url: string): Promise<BrowserWindow> {
     if (!SMOKE_TEST) win.show();
   });
   win.on('close', () => saveWindowState(win));
-  await win.loadURL(url);
+  await win.loadFile(path.join(clientDir(), 'splash.html'));
   return win;
 }
 
-async function runSmokeTest(win: BrowserWindow): Promise<void> {
+/** Smoke test: the splash must render styled, with its logo, from disk alone. */
+async function checkSplash(win: BrowserWindow): Promise<boolean> {
+  const result = (await win.webContents.executeJavaScript(`(() => {
+    const logo = document.querySelector('.splash-logo');
+    return {
+      styled: getComputedStyle(document.querySelector('.splash')).position === 'fixed',
+      logo: !!logo && logo.complete && logo.naturalWidth > 0,
+    };
+  })()`)) as { styled: boolean; logo: boolean };
+  return result.styled && result.logo;
+}
+
+async function runSmokeTest(win: BrowserWindow, splashOk: boolean): Promise<void> {
   const result = (await win.webContents.executeJavaScript(`(async () => {
     const token = document.querySelector('meta[name="aye-aye-token"]')?.content ?? '';
     const res = await fetch('/api/connections', { headers: { 'x-aye-aye-token': token } });
@@ -314,6 +336,7 @@ async function runSmokeTest(win: BrowserWindow): Promise<void> {
       titleBar: document.querySelectorAll('.titlebar-menu button').length,
       logo: !!document.querySelector('.titlebar svg.titlebar-logo ellipse'),
       favicon: (await fetch('/favicon.svg')).status,
+      splashReplaced: !document.querySelector('.splash'),
     };
   })()`)) as {
     title: string;
@@ -326,6 +349,7 @@ async function runSmokeTest(win: BrowserWindow): Promise<void> {
     titleBar: number;
     logo: boolean;
     favicon: number;
+    splashReplaced: boolean;
   };
   const ok =
     result.title === 'Aye-aye' &&
@@ -336,8 +360,10 @@ async function runSmokeTest(win: BrowserWindow): Promise<void> {
     result.nodeHidden &&
     result.titleBar === 4 &&
     result.logo &&
-    result.favicon === 200;
-  console.log(`SMOKE ${ok ? 'OK' : 'FAILED'} ${JSON.stringify({ ...result, url: server?.url })}`);
+    result.favicon === 200 &&
+    result.splashReplaced &&
+    splashOk;
+  console.log(`SMOKE ${ok ? 'OK' : 'FAILED'} ${JSON.stringify({ ...result, splashOk, url: server?.url })}`);
   app.exit(ok ? 0 : 1);
 }
 
@@ -357,18 +383,31 @@ if (!app.requestSingleInstanceLock()) {
     .whenReady()
     .then(async () => {
       Menu.setApplicationMenu(buildMenu());
+      restrictPermissions();
+      handleMenuRequests();
+      const win = await createWindow();
+      mainWindow = win;
+      const splashOk = SMOKE_TEST && (await checkSplash(win));
+
+      const { startServer } = await import('../server/start');
       server = await startServer({
         port: PREFERRED_PORT,
         fallbackToFreePort: true,
         isProd: true,
-        clientDir: path.join(app.getAppPath(), 'dist', 'client'),
+        clientDir: clientDir(),
         dataDir,
       });
-      restrictPermissions(new URL(server.url).origin);
-      handleMenuRequests(new URL(server.url).origin);
-      mainWindow = await createWindow(server.url);
-      if (SMOKE_TEST) await runSmokeTest(mainWindow);
-      else updater = startAutoUpdates(() => mainWindow);
+      // Closed while starting: nothing left to show, the app is already quitting.
+      if (win.isDestroyed()) return;
+      appOrigin = new URL(server.url).origin;
+      // The splash stays on screen until the app's first paint (index.html shows the same splash).
+      await win.loadURL(server.url);
+
+      if (SMOKE_TEST) await runSmokeTest(win, splashOk);
+      else {
+        const { startAutoUpdates } = await import('./updater');
+        updater = startAutoUpdates(() => mainWindow);
+      }
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
